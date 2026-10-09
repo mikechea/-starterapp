@@ -1,7 +1,7 @@
 import pytest
 import json
 from django.db import connection
-from tenant_app.models import Member
+from tenant_app.models import Member, Region
 
 # Mark all tests to use database
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -50,7 +50,8 @@ def test_api_endpoint_isolation(tenant_client, another_tenant_client, test_tenan
     new_member_data_a = {
         "name": "Tenant A API Member",
         "email": "api_member_a@example.com",
-        "phone": "333-333-3333"
+        "phone": "333-333-3333",
+        "region_name": "Tenant A",
     }
     
     response_create_a = tenant_client.post(
@@ -69,7 +70,8 @@ def test_api_endpoint_isolation(tenant_client, another_tenant_client, test_tenan
     new_member_data_b = {
         "name": "Tenant B API Member", # Distinct name for validation
         "email": "api_member_b@example.com", # Distinct email for validation
-        "phone": "444-444-4444" # Distinct phone for validation
+        "phone": "444-444-4444", # Distinct phone for validation
+        "region_name": "Tenant B",
     }
     
     response_create_b = another_tenant_client.post(
@@ -94,28 +96,30 @@ def test_api_endpoint_isolation(tenant_client, another_tenant_client, test_tenan
     member_names_b_db = list(Member.objects.values_list('name', flat=True))
     assert "Direct DB Tenant B Member" in member_names_b_db
     assert "Tenant B API Member" in member_names_b_db
+    assert Region.objects.filter(slug="tenant-a").count() == 0
+    assert Region.objects.filter(slug="tenant-b").count() == 1
 
     # Test first tenant API access to its own data
-    url_a = f'/client/{domain_a}/api/members/{member_a_id}'
+    url_a = f'/client/{domain_a}/api/region/tenant-a/member/{member_a_id}'
     response_a = tenant_client.get(url_a)
     assert response_a.status_code == 200
     response_a_data = response_a.json()
     assert response_a_data['name'] == "Tenant A API Member"
 
     # Test first tenant CANNOT access second tenant's data (expect 404)
-    url_b_from_a = f'/client/{domain_a}/api/members/{member_b_id}'
+    url_b_from_a = f'/client/{domain_a}/api/region/tenant-b/member/{member_b_id}'
     response_a_to_b = tenant_client.get(url_b_from_a)
     assert response_a_to_b.status_code == 404 # Primary assertion
 
     # Test second tenant can access its own data
-    url_b = f'/client/{domain_b}/api/members/{member_b_id}'
+    url_b = f'/client/{domain_b}/api/region/tenant-b/member/{member_b_id}'
     response_b = another_tenant_client.get(url_b)
     assert response_b.status_code == 200
     response_b_data = response_b.json()
     assert response_b_data['name'] == "Tenant B API Member"
 
     # Test second tenant CANNOT access first tenant's data (expect 404)
-    url_a_from_b = f'/client/{domain_b}/api/members/{member_a_id}'
+    url_a_from_b = f'/client/{domain_b}/api/region/tenant-a/member/{member_a_id}'
     response_b_to_a = another_tenant_client.get(url_a_from_b)
     assert response_b_to_a.status_code == 404 # Primary assertion
 
@@ -136,25 +140,28 @@ def test_list_endpoint_isolation(tenant_client, another_tenant_client, test_tena
     
     # Create members through the API in the first tenant
     domain_a = test_tenant.test_domain
-    list_url_a = f'/client/{domain_a}/api/members'
+    create_url_a = f'/client/{domain_a}/api/members'
+    list_url_a = f'/client/{domain_a}/api/region/tenant-a/member'
     
     # Create two members in first tenant with distinctive names
     tenant_a_members = [
         {
             "name": "Tenant A List Member 1",
             "email": "list_a1@example.com",
-            "phone": "555-555-5551"
+            "phone": "555-555-5551",
+            "region_name": "Tenant A",
         },
         {
             "name": "Tenant A List Member 2",
             "email": "list_a2@example.com",
-            "phone": "555-555-5552"
+            "phone": "555-555-5552",
+            "region_name": "Tenant A",
         }
     ]
     
     for member_data in tenant_a_members:
         response = tenant_client.post(
-            list_url_a,
+            create_url_a,
             data=json.dumps(member_data),
             content_type='application/json'
         )
@@ -162,30 +169,34 @@ def test_list_endpoint_isolation(tenant_client, another_tenant_client, test_tena
     
     # Create members through the API in the second tenant with distinctive names
     domain_b = another_tenant.test_domain
-    list_url_b = f'/client/{domain_b}/api/members'
+    create_url_b = f'/client/{domain_b}/api/members'
+    list_url_b = f'/client/{domain_b}/api/region/tenant-b/member'
     
     # Create three members in second tenant
     tenant_b_members = [
         {
             "name": "Tenant B List Member 1",
             "email": "list_b1@example.com",
-            "phone": "666-666-6661"
+            "phone": "666-666-6661",
+            "region_name": "Tenant B",
         },
         {
             "name": "Tenant B List Member 2",
             "email": "list_b2@example.com",
-            "phone": "666-666-6662"
+            "phone": "666-666-6662",
+            "region_name": "Tenant B",
         },
         {
             "name": "Tenant B List Member 3",
             "email": "list_b3@example.com",
-            "phone": "666-666-6663"
+            "phone": "666-666-6663",
+            "region_name": "Tenant B",
         }
     ]
     
     for member_data in tenant_b_members:
         response = another_tenant_client.post(
-            list_url_b,
+            create_url_b,
             data=json.dumps(member_data),
             content_type='application/json'
         )

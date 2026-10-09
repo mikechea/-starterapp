@@ -55,11 +55,11 @@ python manage.py runserver
 - `GET /api/domains` - List all domains
 
 ### Client API (Tenant-specific)
-- `GET /client/{domain}/api/members` - List members
-- `POST /client/{domain}/api/members` - Create member
-- `GET /client/{domain}/api/members/{id}` - Get member detail
-- `PUT /client/{domain}/api/members/{id}` - Update member
-- `DELETE /client/{domain}/api/members/{id}` - Delete member
+- `GET /client/{domain}/api/region/{region}/member` - List members in a region (`region` is the slug)
+- `POST /client/{domain}/api/members` - Create member. Requires `region_name`. Reuses a region with the same slug, or creates one.
+- `GET /client/{domain}/api/region/{region}/member/{id}` - Get member detail. Returns 404 if the member is not in that region.
+- `PUT /client/{domain}/api/region/{region}/member/{id}` - Update member. Path region must match the member's current region. Optional `region_name` moves the member; omitting it keeps the current region.
+- `DELETE /client/{domain}/api/region/{region}/member/{id}` - Delete member. Returns 404 if the member is not in that region.
 
 ### API docs:
 - `http://localhost:8000/api/docs` - Shared API docs

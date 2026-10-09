@@ -1,17 +1,32 @@
 import pytest
-from tenant_app.api import MemberUpdateSchema, list_members, create_member, get_member, update_member, delete_member
-from tenant_app.models import Member
+from tenant_app.api import (
+    MemberCreateSchema,
+    MemberUpdateSchema,
+    list_members,
+    create_member,
+    get_member,
+    update_member,
+    delete_member,
+)
+from tenant_app.models import Member, Region
 
 # Constant used in tests
 NONEXISTENT_ID = 9999
 
+
+@pytest.fixture(autouse=True)
+def _no_database_transaction(mocker):
+    """Unit tests call the view functions directly and must not open a transaction."""
+    mocker.patch("tenant_app.api.transaction.atomic")
+
 # --- Unit Tests ---
 def test_unit_list_members(mocker, member1_unit_data, member2_unit_data):
-    """Test listing all members (unit)"""
-    mock_all = mocker.patch('tenant_app.api.Member.objects.all')
-    mock_all.return_value = [member1_unit_data, member2_unit_data]
+    """Test listing members in a region (unit)"""
+    mocker.patch("tenant_app.api.Region.objects.get")
+    mock_filter = mocker.patch("tenant_app.api.Member.objects.filter")
+    mock_filter.return_value = [member1_unit_data, member2_unit_data]
 
-    result = list_members(None) # Pass None for request as it's unused
+    result = list_members(None, "west-coast")
 
     assert len(result) == 2
     assert isinstance(result, list)
@@ -19,18 +34,27 @@ def test_unit_list_members(mocker, member1_unit_data, member2_unit_data):
     assert result[0].name == "Test User 1"
     assert result[1].id == 2
     assert result[1].name == "Test User 2"
-    mock_all.assert_called_once()
+    mock_filter.assert_called_once_with(region__slug="west-coast")
 
 def test_unit_create_member(mocker):
     """Test creating a new member (unit)"""
+    region = Region(id=4, name="West Coast", slug="west-coast")
+    mock_resolve = mocker.patch("tenant_app.api.resolve_region", return_value=region)
     mock_create = mocker.patch('tenant_app.api.Member.objects.create')
-    created_instance = Member(id=3, name="New Test User", email="new@example.com", phone="555-555-5555")
-    mock_create.return_value = created_instance
-
-    payload = MemberUpdateSchema(
+    created_instance = Member(
+        id=3,
         name="New Test User",
         email="new@example.com",
-        phone="555-555-5555"
+        phone="555-555-5555",
+        region=region,
+    )
+    mock_create.return_value = created_instance
+
+    payload = MemberCreateSchema(
+        name="New Test User",
+        email="new@example.com",
+        phone="555-555-5555",
+        region_name="West Coast",
     )
 
     result = create_member(None, payload)
@@ -39,10 +63,12 @@ def test_unit_create_member(mocker):
     assert result.name == "New Test User"
     assert result.email == "new@example.com"
     assert result.phone == "555-555-5555"
+    mock_resolve.assert_called_once_with("West Coast")
     mock_create.assert_called_once_with(
         name="New Test User",
         email="new@example.com",
-        phone="555-555-5555"
+        phone="555-555-5555",
+        region=region,
     )
 
 def test_unit_get_member(mocker, member1_unit_data):
@@ -50,12 +76,12 @@ def test_unit_get_member(mocker, member1_unit_data):
     mock_get = mocker.patch('tenant_app.api.Member.objects.get')
     mock_get.return_value = member1_unit_data
 
-    result = get_member(None, 1)
+    result = get_member(None, "west-coast", 1)
 
     assert result.id == 1
     assert result.name == "Test User 1"
     assert result.email == "test1@example.com"
-    mock_get.assert_called_once_with(id=1)
+    mock_get.assert_called_once_with(id=1, region__slug="west-coast")
 
 def test_unit_get_nonexistent_member(mocker):
     """Test retrieving a member that doesn't exist (unit)"""
@@ -64,9 +90,9 @@ def test_unit_get_nonexistent_member(mocker):
     
     # We expect the exception to be raised and handled by the ninja framework
     with pytest.raises(Member.DoesNotExist):
-        get_member(None, NONEXISTENT_ID)
+        get_member(None, "west-coast", NONEXISTENT_ID)
     
-    mock_get.assert_called_once_with(id=NONEXISTENT_ID)
+    mock_get.assert_called_once_with(id=NONEXISTENT_ID, region__slug="west-coast")
 
 def test_unit_update_member(mocker):
     """Test updating a member (unit)"""
@@ -84,9 +110,9 @@ def test_unit_update_member(mocker):
         phone="999-999-9999"
     )
 
-    result = update_member(None, 1, payload)
+    result = update_member(None, "west-coast", 1, payload)
 
-    mock_get.assert_called_once_with(id=1)
+    mock_get.assert_called_once_with(id=1, region__slug="west-coast")
     assert mock_member_instance.name == "Updated Test User"
     assert mock_member_instance.email == "updated@example.com"
     assert mock_member_instance.phone == "999-999-9999"
@@ -106,9 +132,9 @@ def test_unit_update_nonexistent_member(mocker):
     
     # We expect the exception to be raised and handled by the ninja framework
     with pytest.raises(Member.DoesNotExist):
-        update_member(None, NONEXISTENT_ID, payload)
+        update_member(None, "west-coast", NONEXISTENT_ID, payload)
     
-    mock_get.assert_called_once_with(id=NONEXISTENT_ID)
+    mock_get.assert_called_once_with(id=NONEXISTENT_ID, region__slug="west-coast")
 
 def test_unit_partial_update_member(mocker):
     """Test partially updating a member (unit) - based on current API logic"""
@@ -128,9 +154,9 @@ def test_unit_partial_update_member(mocker):
         phone=None  # Explicit None in payload
     )
 
-    result = update_member(None, 1, payload)
+    result = update_member(None, "west-coast", 1, payload)
 
-    mock_get.assert_called_once_with(id=1)
+    mock_get.assert_called_once_with(id=1, region__slug="west-coast")
     assert mock_member_instance.name == "Partially Updated User"
     # API logic checks `if payload.email is not None:`, so original value remains
     assert mock_member_instance.email == "original@example.com"
@@ -146,9 +172,9 @@ def test_unit_delete_member(mocker):
     mock_member_instance.id = 1
     mock_get.return_value = mock_member_instance
 
-    result = delete_member(None, 1)
+    result = delete_member(None, "west-coast", 1)
 
-    mock_get.assert_called_once_with(id=1)
+    mock_get.assert_called_once_with(id=1, region__slug="west-coast")
     mock_member_instance.delete.assert_called_once()
     # API now returns the status code directly
     assert result == 200
@@ -160,6 +186,6 @@ def test_unit_delete_nonexistent_member(mocker):
     
     # We expect the exception to be raised and handled by the ninja framework
     with pytest.raises(Member.DoesNotExist):
-        delete_member(None, NONEXISTENT_ID)
+        delete_member(None, "west-coast", NONEXISTENT_ID)
     
-    mock_get.assert_called_once_with(id=NONEXISTENT_ID) 
+    mock_get.assert_called_once_with(id=NONEXISTENT_ID, region__slug="west-coast") 

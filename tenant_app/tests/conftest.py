@@ -7,7 +7,7 @@ from django_tenants.utils import get_public_schema_name
 # Assuming your tenant model is Client from shared_app
 # Adjust imports based on your actual project structure
 from shared_app.models import Client as Tenant, Domain
-from ..models import Member
+from ..models import Member, Region
 
 @pytest.fixture(scope='function') # Use 'function' scope for isolation between tests
 def test_tenant(db, django_db_blocker):
@@ -33,6 +33,10 @@ def test_tenant(db, django_db_blocker):
         )
     # Store the domain on the tenant object for the client fixture to use
     tenant.test_domain = tenant_domain
+    connection.set_tenant(tenant)
+    Member.objects.all().delete()
+    Region.objects.all().delete()
+    connection.set_schema_to_public()
     yield tenant
     # Ensure schema is reset if any direct connection manipulation happened post-yield
     connection.set_schema_to_public()
@@ -60,6 +64,10 @@ def another_tenant(db, django_db_blocker):
         )
     # Store the domain on the tenant object for the client fixture to use
     tenant.test_domain = tenant_domain
+    connection.set_tenant(tenant)
+    Member.objects.all().delete()
+    Region.objects.all().delete()
+    connection.set_schema_to_public()
     yield tenant
     # Teardown handled by transaction rollback and schema reset
     connection.set_schema_to_public()
@@ -91,25 +99,38 @@ def another_tenant_client(another_tenant):
     connection.set_schema_to_public()
 
 @pytest.fixture
-def member1(test_tenant):
+def west_coast_region(test_tenant):
+    """Shared region used by member fixtures that need path-scoped URLs."""
+    connection.set_tenant(test_tenant)
+    region, _created = Region.objects.get_or_create(
+        slug="west-coast",
+        defaults={"name": "West Coast"},
+    )
+    connection.set_schema_to_public()
+    return region
+
+@pytest.fixture
+def member1(test_tenant, west_coast_region):
     """Creates the first Member instance within the test tenant's schema."""
     connection.set_tenant(test_tenant)
     member = Member.objects.create(
         name="Test User 1",
         email="test1@example.com",
-        phone="123-456-7890"
+        phone="123-456-7890",
+        region=west_coast_region,
     )
     connection.set_schema_to_public()
     return member
 
 @pytest.fixture
-def member2(test_tenant):
+def member2(test_tenant, west_coast_region):
     """Creates the second Member instance within the test tenant's schema."""
     connection.set_tenant(test_tenant)
     member = Member.objects.create(
         name="Test User 2",
         email="test2@example.com",
-        phone="098-765-4321"
+        phone="098-765-4321",
+        region=west_coast_region,
     )
     connection.set_schema_to_public()
     return member
@@ -119,19 +140,23 @@ def member2(test_tenant):
 @pytest.fixture
 def member1_unit_data():
     """Provides data for the first member for unit tests (no DB interaction)."""
+    region = Region(id=4, name="West Coast", slug="west-coast")
     return Member(
         id=1,
         name="Test User 1",
         email="test1@example.com",
-        phone="123-456-7890"
+        phone="123-456-7890",
+        region=region,
     )
 
 @pytest.fixture
 def member2_unit_data():
     """Provides data for the second member for unit tests (no DB interaction)."""
+    region = Region(id=4, name="West Coast", slug="west-coast")
     return Member(
         id=2,
         name="Test User 2",
         email="test2@example.com",
-        phone="098-765-4321"
+        phone="098-765-4321",
+        region=region,
     ) 

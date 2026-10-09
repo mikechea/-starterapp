@@ -1,6 +1,6 @@
 import pytest
 import json
-from tenant_app.models import Member
+from tenant_app.models import Member, Region
 from django.db import connection
 
 # Mark all tests in this module to use the database
@@ -9,14 +9,19 @@ pytestmark = pytest.mark.django_db(transaction=True) # Use transactions for spee
 # Constant used in tests
 NONEXISTENT_ID = 9999
 
-def detail_url(tenant_domain, member):
+def member_collection_url(tenant_domain, region_slug):
+    """List/create-under-region URL for a region slug."""
+    return f'/client/{tenant_domain}/api/region/{region_slug}/member'
+
+
+def detail_url(tenant_domain, member, region_slug="west-coast"):
     """Helper to get detail URL for a member, including tenant domain prefix"""
-    return f'/client/{tenant_domain}/api/members/{member.id}'
+    return f'/client/{tenant_domain}/api/region/{region_slug}/member/{member.id}'
 
 def test_list_members(tenant_client, test_tenant, member1, member2):
-    """Test listing all members"""
+    """Test listing members in a region"""
     domain = test_tenant.test_domain # Get domain from the tenant fixture
-    list_url = f'/client/{domain}/api/members' # Construct URL dynamically
+    list_url = member_collection_url(domain, "west-coast")
 
     response = tenant_client.get(list_url)
     data = response.json()
@@ -41,7 +46,8 @@ def test_create_member(tenant_client, test_tenant):
     new_member_data = {
         "name": "New Test User",
         "email": "new@example.com",
-        "phone": "555-555-5555"
+        "phone": "555-555-5555",
+        "region_name": "West Coast",
     }
 
     response = tenant_client.post(
@@ -56,11 +62,14 @@ def test_create_member(tenant_client, test_tenant):
     assert data['name'] == new_member_data['name']
     assert data['email'] == new_member_data['email']
     assert data['phone'] == new_member_data['phone']
+    assert data['region']['name'] == "West Coast"
+    assert data['region']['slug'] == "west-coast"
 
     # Verify in database (ensure connection is still set correctly)
     connection.set_tenant(test_tenant)
     created_member = Member.objects.get(id=data['id'])
     assert created_member.name == new_member_data['name']
+    assert created_member.region.slug == "west-coast"
     connection.set_schema_to_public()
 
 def test_create_member_invalid_data(tenant_client, test_tenant):
@@ -97,10 +106,10 @@ def test_get_member(tenant_client, test_tenant, member1):
     assert data['email'] == member1.email
     assert data['phone'] == member1.phone
 
-def test_get_nonexistent_member(tenant_client, test_tenant):
+def test_get_nonexistent_member(tenant_client, test_tenant, west_coast_region):
     """Test retrieving a member that doesn't exist"""
     domain = test_tenant.test_domain
-    nonexistent_url = f'/client/{domain}/api/members/{NONEXISTENT_ID}' # Construct URL dynamically
+    nonexistent_url = f'/client/{domain}/api/region/west-coast/member/{NONEXISTENT_ID}'
 
     response = tenant_client.get(nonexistent_url)
     # Assuming Ninja returns 404 when Member.DoesNotExist is caught by its handler
@@ -137,10 +146,10 @@ def test_update_member(tenant_client, test_tenant, member1):
     assert updated_member.phone == update_data['phone']
     connection.set_schema_to_public()
 
-def test_update_nonexistent_member(tenant_client, test_tenant):
+def test_update_nonexistent_member(tenant_client, test_tenant, west_coast_region):
     """Test updating a member that doesn't exist"""
     domain = test_tenant.test_domain
-    nonexistent_url = f'/client/{domain}/api/members/{NONEXISTENT_ID}' # Construct URL dynamically
+    nonexistent_url = f'/client/{domain}/api/region/west-coast/member/{NONEXISTENT_ID}'
 
     update_data = {
         "name": "This Won't Work",
@@ -216,7 +225,7 @@ def test_partial_update_member(tenant_client, test_tenant, member1):
 def test_delete_member(tenant_client, test_tenant, member1):
     """Test deleting a member"""
     domain = test_tenant.test_domain
-    url = detail_url(domain, member1) # Pass domain to helper
+    url = detail_url(domain, member1)
 
     response = tenant_client.delete(url)
     assert response.status_code == 200
@@ -227,10 +236,153 @@ def test_delete_member(tenant_client, test_tenant, member1):
         Member.objects.get(id=member1.id)
     connection.set_schema_to_public()
 
-def test_delete_nonexistent_member(tenant_client, test_tenant):
+def test_delete_nonexistent_member(tenant_client, test_tenant, west_coast_region):
     """Test deleting a member that doesn't exist"""
     domain = test_tenant.test_domain
-    nonexistent_url = f'/client/{domain}/api/members/{NONEXISTENT_ID}' # Construct URL dynamically
+    nonexistent_url = f'/client/{domain}/api/region/west-coast/member/{NONEXISTENT_ID}'
 
     response = tenant_client.delete(nonexistent_url)
-    assert response.status_code == 404 
+    assert response.status_code == 404
+
+
+def test_create_member_reuses_region_without_renaming(tenant_client, test_tenant):
+    """A differently capitalized name matches the existing region and keeps its name."""
+    domain = test_tenant.test_domain
+    list_url = f'/client/{domain}/api/members'
+
+    first = tenant_client.post(
+        list_url,
+        data=json.dumps({"name": "Ada Lovelace", "region_name": "West Coast"}),
+        content_type='application/json',
+    )
+    second = tenant_client.post(
+        list_url,
+        data=json.dumps({"name": "Grace Hopper", "region_name": "west coast"}),
+        content_type='application/json',
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()['region']['id'] == second.json()['region']['id']
+    assert second.json()['region']['name'] == "West Coast"
+    assert second.json()['region']['slug'] == "west-coast"
+
+    connection.set_tenant(test_tenant)
+    assert Region.objects.count() == 1
+    connection.set_schema_to_public()
+
+
+def test_create_member_requires_region_name(tenant_client, test_tenant):
+    domain = test_tenant.test_domain
+    list_url = f'/client/{domain}/api/members'
+
+    response = tenant_client.post(
+        list_url,
+        data=json.dumps({"name": "No Region"}),
+        content_type='application/json',
+    )
+
+    assert response.status_code == 422
+    connection.set_tenant(test_tenant)
+    assert Member.objects.count() == 0
+    assert Region.objects.count() == 0
+    connection.set_schema_to_public()
+
+
+def test_create_member_rejects_unslugifiable_region_name(tenant_client, test_tenant):
+    domain = test_tenant.test_domain
+    list_url = f'/client/{domain}/api/members'
+
+    response = tenant_client.post(
+        list_url,
+        data=json.dumps({"name": "No Region", "region_name": "!!!"}),
+        content_type='application/json',
+    )
+
+    assert response.status_code == 400
+    connection.set_tenant(test_tenant)
+    assert Member.objects.count() == 0
+    assert Region.objects.count() == 0
+    connection.set_schema_to_public()
+
+
+def test_update_without_region_name_keeps_region(tenant_client, test_tenant):
+    domain = test_tenant.test_domain
+    list_url = f'/client/{domain}/api/members'
+    created = tenant_client.post(
+        list_url,
+        data=json.dumps({"name": "Ada Lovelace", "region_name": "West Coast"}),
+        content_type='application/json',
+    )
+    member_id = created.json()['id']
+    url = f'/client/{domain}/api/region/west-coast/member/{member_id}'
+
+    omitted = tenant_client.put(
+        url,
+        data=json.dumps({"name": "Ada Lovelace Updated"}),
+        content_type='application/json',
+    )
+    explicit_null = tenant_client.put(
+        url,
+        data=json.dumps({"name": "Ada Lovelace Updated", "region_name": None}),
+        content_type='application/json',
+    )
+
+    assert omitted.status_code == 200
+    assert omitted.json()['region']['slug'] == "west-coast"
+    assert explicit_null.status_code == 200
+    assert explicit_null.json()['region']['slug'] == "west-coast"
+
+
+def test_update_with_region_name_moves_member(tenant_client, test_tenant):
+    domain = test_tenant.test_domain
+    list_url = f'/client/{domain}/api/members'
+    created = tenant_client.post(
+        list_url,
+        data=json.dumps({"name": "Ada Lovelace", "region_name": "West Coast"}),
+        content_type='application/json',
+    )
+    member_id = created.json()['id']
+    url = f'/client/{domain}/api/region/west-coast/member/{member_id}'
+
+    response = tenant_client.put(
+        url,
+        data=json.dumps({"name": "Ada Lovelace", "region_name": "Pacific"}),
+        content_type='application/json',
+    )
+
+    assert response.status_code == 200
+    assert response.json()['region']['name'] == "Pacific"
+    assert response.json()['region']['slug'] == "pacific"
+
+    connection.set_tenant(test_tenant)
+    assert Region.objects.filter(slug="west-coast").exists()
+    member = Member.objects.get(id=member_id)
+    assert member.region.slug == "pacific"
+    connection.set_schema_to_public()
+
+
+def test_update_rejects_unslugifiable_region_name(tenant_client, test_tenant):
+    domain = test_tenant.test_domain
+    list_url = f'/client/{domain}/api/members'
+    created = tenant_client.post(
+        list_url,
+        data=json.dumps({"name": "Ada Lovelace", "region_name": "West Coast"}),
+        content_type='application/json',
+    )
+    member_id = created.json()['id']
+    url = f'/client/{domain}/api/region/west-coast/member/{member_id}'
+
+    response = tenant_client.put(
+        url,
+        data=json.dumps({"name": "Renamed", "region_name": "!!!"}),
+        content_type='application/json',
+    )
+
+    assert response.status_code == 400
+    connection.set_tenant(test_tenant)
+    member = Member.objects.get(id=member_id)
+    assert member.name == "Ada Lovelace"
+    assert member.region.slug == "west-coast"
+    assert Region.objects.count() == 1
+    connection.set_schema_to_public() 
