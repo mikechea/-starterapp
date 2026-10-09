@@ -104,7 +104,7 @@ def west_coast_region(test_tenant):
     connection.set_tenant(test_tenant)
     region, _created = Region.objects.get_or_create(
         slug="west-coast",
-        defaults={"name": "West Coast"},
+        defaults={"name": "West Coast", "client": test_tenant},
     )
     connection.set_schema_to_public()
     return region
@@ -118,6 +118,7 @@ def member1(test_tenant, west_coast_region):
         email="test1@example.com",
         phone="123-456-7890",
         region=west_coast_region,
+        client=test_tenant,
     )
     connection.set_schema_to_public()
     return member
@@ -131,6 +132,7 @@ def member2(test_tenant, west_coast_region):
         email="test2@example.com",
         phone="098-765-4321",
         region=west_coast_region,
+        client=test_tenant,
     )
     connection.set_schema_to_public()
     return member
@@ -140,23 +142,25 @@ def member2(test_tenant, west_coast_region):
 @pytest.fixture
 def member1_unit_data():
     """Provides data for the first member for unit tests (no DB interaction)."""
-    region = Region(id=4, name="West Coast", slug="west-coast")
+    region = Region(id=4, name="West Coast", slug="west-coast", client_id=1)
     return Member(
         id=1,
         name="Test User 1",
         email="test1@example.com",
         phone="123-456-7890",
         region=region,
+        client_id=1,
     )
 
 @pytest.fixture
 def member2_unit_data():
     """Provides data for the second member for unit tests (no DB interaction)."""
-    region = Region(id=4, name="West Coast", slug="west-coast")
+    region = Region(id=4, name="West Coast", slug="west-coast", client_id=1)
     return Member(
         id=2,
         name="Test User 2",
         email="test2@example.com",
         phone="098-765-4321",
         region=region,
+        client_id=1,
     ) 
