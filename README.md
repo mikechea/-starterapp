@@ -1,6 +1,6 @@
 # Django Multi-Tenant Application
 
-A minimal Django application with django-tenants support and Django Ninja API. Each tenant corresponds to a health insurance company, which has members (members of the health plan). Using django-tenants, the tenant data (e.g., members) is semi-isolated from other tenants via separate database schemas.
+A minimal Django application with django-tenants, django_multitenant, and Django Ninja API. Each tenant corresponds to a health insurance company, which has members (members of the health plan). Using django-tenants, the tenant data (e.g., members) is semi-isolated from other tenants via separate database schemas.
 
 ## Prerequisites
 
@@ -72,6 +72,7 @@ Note: The API docs support testing the API endpoints.
 - `shared_app` - Contains shared models in the public schema (Client, Domain) accessible from all tenants
 - `tenant_app` - Contains tenant-specific models (e.g., Member) and api for each tenant schema
 - Django Ninja APIs in both apps
+- Tenant rows are isolated by django-tenants schemas. Inside a schema, `Member` and `Region` also store a `client` foreign key used by django_multitenant so `Member.region` joins match the same client.
 
 ## Testing
 

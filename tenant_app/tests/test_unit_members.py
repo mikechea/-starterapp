@@ -15,9 +15,13 @@ NONEXISTENT_ID = 9999
 
 
 @pytest.fixture(autouse=True)
-def _no_database_transaction(mocker):
-    """Unit tests call the view functions directly and must not open a transaction."""
+def _tenant_context(mocker):
+    """Unit tests call views directly; stub tenant context and skip real transactions."""
     mocker.patch("tenant_app.api.transaction.atomic")
+    client = mocker.Mock(id=1)
+    mocker.patch("tenant_app.api.get_current_tenant", return_value=client)
+    mocker.patch("tenant_app.api._request_client", return_value=client)
+    return client
 
 # --- Unit Tests ---
 def test_unit_list_members(mocker, member1_unit_data, member2_unit_data):
@@ -36,9 +40,9 @@ def test_unit_list_members(mocker, member1_unit_data, member2_unit_data):
     assert result[1].name == "Test User 2"
     mock_filter.assert_called_once_with(region__slug="west-coast")
 
-def test_unit_create_member(mocker):
+def test_unit_create_member(mocker, _tenant_context):
     """Test creating a new member (unit)"""
-    region = Region(id=4, name="West Coast", slug="west-coast")
+    region = Region(id=4, name="West Coast", slug="west-coast", client_id=1)
     mock_resolve = mocker.patch("tenant_app.api.resolve_region", return_value=region)
     mock_create = mocker.patch('tenant_app.api.Member.objects.create')
     created_instance = Member(
@@ -47,6 +51,7 @@ def test_unit_create_member(mocker):
         email="new@example.com",
         phone="555-555-5555",
         region=region,
+        client_id=1,
     )
     mock_create.return_value = created_instance
 
@@ -69,6 +74,7 @@ def test_unit_create_member(mocker):
         email="new@example.com",
         phone="555-555-5555",
         region=region,
+        client=_tenant_context,
     )
 
 def test_unit_get_member(mocker, member1_unit_data):

@@ -31,6 +31,7 @@ ALLOWED_HOSTS = ['*']
 # Application definition
 SHARED_APPS = (
     'django_tenants',
+    'django_multitenant',
     'shared_app',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -53,6 +54,7 @@ INSTALLED_APPS = list(SHARED_APPS) + [app for app in TENANT_APPS if app not in S
 
 MIDDLEWARE = [
     'django_tenants.middleware.TenantSubfolderMiddleware',
+    'tenant_app.middleware.DjangoMultitenantMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

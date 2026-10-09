@@ -8,6 +8,10 @@ class Client(TenantMixin):
     # Default true, schema will be automatically created and synced when it is saved
     auto_create_schema = True
 
+    @property
+    def tenant_value(self):
+        return self.id
+
     def __str__(self):
         return self.name
 

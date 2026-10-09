@@ -4,8 +4,9 @@ from typing import List, Optional
 from .models import Member, Region
 from datetime import datetime
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils.text import slugify
+from django_multitenant.utils import get_current_tenant
 
 api = NinjaAPI(title="Tenant API", urls_namespace="tenant_api")
 
@@ -43,6 +44,13 @@ class ErrorSchema(Schema):
     detail: str
 
 
+def _request_client():
+    tenant = get_current_tenant() or getattr(connection, "tenant", None)
+    if tenant is None:
+        raise HttpError(500, "Tenant context is required.")
+    return tenant
+
+
 def resolve_region(region_name: str) -> Region:
     """Find a region by the slug of its name, creating it when missing.
 
@@ -53,9 +61,10 @@ def resolve_region(region_name: str) -> Region:
     slug = slugify(cleaned)
     if not slug:
         raise HttpError(400, "Region name must contain a letter or number.")
+    client = _request_client()
     region, _created = Region.objects.get_or_create(
         slug=slug,
-        defaults={"name": cleaned},
+        defaults={"name": cleaned, "client": client},
     )
     return region
 
@@ -84,6 +93,7 @@ def create_member(request, payload: MemberCreateSchema):
             phone=payload.phone or "",
             email=payload.email or "",
             region=region,
+            client=_request_client(),
         )
     return member
 
@@ -96,7 +106,8 @@ def get_member(request, region: str, member_id: int):
 def update_member(request, region: str, member_id: int, payload: MemberUpdateSchema):
     member = Member.objects.get(id=member_id, region__slug=region)
     with transaction.atomic():
-        member.name = payload.name
+        if payload.name is not None:
+            member.name = payload.name
         if payload.phone is not None:
             member.phone = payload.phone
         if payload.email is not None:

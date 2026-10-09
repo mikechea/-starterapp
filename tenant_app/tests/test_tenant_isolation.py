@@ -16,10 +16,13 @@ def test_api_endpoint_isolation(tenant_client, another_tenant_client, test_tenan
     Member.objects.all().delete()
     
     # Create a member directly in first tenant's database
+    region_a = Region.objects.create(name="Tenant A", client=test_tenant)
     member_a_db = Member.objects.create(
         name="Direct DB Tenant A Member",
         email="direct_a@example.com",
-        phone="111-111-1111"
+        phone="111-111-1111",
+        region=region_a,
+        client=test_tenant,
     )
     
     # Verify there's only one member
@@ -33,10 +36,13 @@ def test_api_endpoint_isolation(tenant_client, another_tenant_client, test_tenan
     Member.objects.all().delete()
     
     # Create a member directly in second tenant's database
+    region_b = Region.objects.create(name="Tenant B", client=another_tenant)
     member_b_db = Member.objects.create(
         name="Direct DB Tenant B Member",
         email="direct_b@example.com",
-        phone="222-222-2222"
+        phone="222-222-2222",
+        region=region_b,
+        client=another_tenant,
     )
     
     # Verify there's only one member

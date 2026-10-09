@@ -164,23 +164,28 @@ def test_update_nonexistent_member(tenant_client, test_tenant, west_coast_region
     )
     assert response.status_code == 404
 
-def test_update_member_invalid_data(tenant_client, test_tenant, member1):
-    """Test updating a member with invalid data"""
+def test_update_member_omitting_name_keeps_name(tenant_client, test_tenant, member1):
+    """Omitting name on update leaves the existing name in place."""
     domain = test_tenant.test_domain
-    url = detail_url(domain, member1) # Pass domain to helper
-
-    invalid_data = {
-        # Missing required 'name' field in MemberSchema
-        "email": "stillneeded@example.com",
-        "phone": "123-123-1234"
-    }
+    url = detail_url(domain, member1)
+    original_name = member1.name
 
     response = tenant_client.put(
         url,
-        data=json.dumps(invalid_data),
-        content_type='application/json'
+        data=json.dumps(
+            {
+                "email": "stillneeded@example.com",
+                "phone": "123-123-1234",
+            }
+        ),
+        content_type="application/json",
     )
-    assert response.status_code == 422 # Assuming Ninja validation error
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["name"] == original_name
+    assert data["email"] == "stillneeded@example.com"
+    assert data["phone"] == "123-123-1234"
 
 def test_partial_update_member(tenant_client, test_tenant, member1):
     """
